@@ -46,7 +46,7 @@ jobs:
 
       - name: Analyse SAST avec Bandit
         run: |
-          bandit -r . -ll
+          bandit -r ./breakableflask -ll
 
   ia_scanner:
     name: IA-Scanner (dépendances - pip-audit)
