@@ -1,4 +1,4 @@
-kkname: DevSecOps Breakableflask
+name: DevSecOps Breakableflask
 
 on:
   push:
