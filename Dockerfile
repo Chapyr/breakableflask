@@ -1,24 +1,135 @@
-FROM python:3.11-slim
+name: DevSecOps Breakableflask
 
-# Dossier de travail
-WORKDIR /app
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
 
-# Copie des dépendances et installation
-COPY requirements.txt .
+jobs:
+  dependances:
+    name: Dépendances
+    runs-on: ubuntu-latest
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
 
-# Copie du code de l'application
-COPY . .
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-# Variables d'environnement Flask
-ENV FLASK_APP=main.py
-ENV FLASK_RUN_HOST=0.0.0.0
-ENV FLASK_RUN_PORT=4000
+      - name: Installation des dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-# Port exposé par l'application
-EXPOSE 4000
+  sast:
+    name: SAST (Bandit)
+    runs-on: ubuntu-latest
+    needs: dependances
 
-# Commande de lancement
-CMD ["python", "main.py"]
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installer Bandit
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit
+
+      - name: Analyse SAST avec Bandit
+        run: |
+          bandit -r . -ll
+
+  ia_scanner:
+    name: IA-Scanner (dépendances - pip-audit)
+    runs-on: ubuntu-latest
+    needs: dependances
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installer pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+
+      - name: Scan des vulnérabilités des dépendances
+        run: |
+          pip-audit -r requirements.txt
+
+  dockerfile:
+    name: Dockerfile (build image)
+    runs-on: ubuntu-latest
+    needs: [dependances, sast, ia_scanner]
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Build de l'image Docker
+        run: |
+          docker build -t breakableflask:latest .
+
+  tests:
+    name: Tests unitaires
+    runs-on: ubuntu-latest
+    needs: dependances
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Lancer les tests (si présents)
+        run: |
+          if [ -d "tests" ]; then
+            pytest
+          else
+            echo "Aucun dossier 'tests/' trouvé, aucun test exécuté."
+          fi
+
+  trivy:
+    name: Trivy (scan image Docker)
+    runs-on: ubuntu-latest
+    needs: dockerfile
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Build de l'image Docker pour Trivy
+        run: |
+          docker build -t breakableflask:latest .
+
+      - name: Scan de l'image Docker avec Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: breakableflask:latest
+          format: table
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          exit-code: '1'
